@@ -8,6 +8,9 @@ import pyttsx3
 import time
 import requests
 import threading
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+import queue
 
 # Load YOLOv5 model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
@@ -93,6 +96,7 @@ class ObjectDetectionApp:
 
         #intialising log file path
         self.log_file_path = "detection_log.txt"
+        self.logged_left_panel = set()
 
         style = ttk.Style()
         style.theme_use('clam')
@@ -123,7 +127,7 @@ class ObjectDetectionApp:
         wiki_info_label.pack(pady=(5, 0))
 
         # Scrollable text widget to show Wikipedia/local descriptions
-        self.left_info_text = scrolledtext.ScrolledText(left_panel, width=40, height=12, font=("Courier New", 10),wrap=tk.WORD, bg=highlight_color, fg=text_color)
+        self.left_info_text = scrolledtext.ScrolledText(left_panel, width=40, height=12, font=("Courier New", 10),wrap=tk.WORD, bg=highlight_color, fg=text_color, )
         self.left_info_text.pack(padx=10, pady=(0, 10), fill=tk.BOTH, expand=False)
         self.left_info_text.config(state=tk.DISABLED)
 
@@ -184,7 +188,10 @@ class ObjectDetectionApp:
         self.paused = False
         self.logged_objects = set()
         self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', 150)  # Adjust speech rate
+        self.engine.setProperty('rate', 150)
+        self.speech_queue = queue.Queue()
+        self.speech_thread = threading.Thread(target=self.process_speech_queue, daemon=True)
+        self.speech_thread.start()
         
         # Object tracking dictionary to store previous positions and movement status
         self.object_tracking = {}
@@ -229,7 +236,6 @@ class ObjectDetectionApp:
 
     def update_info_text(self, text):
         self.info_text.config(state=tk.NORMAL)
-        self.info_text.delete(1.0, tk.END)
         self.info_text.insert(tk.END, text)
         self.info_text.config(state=tk.DISABLED)
 
@@ -360,24 +366,39 @@ class ObjectDetectionApp:
         based on cooldown and status change
         """
         current_time = time.time()
-        
+
         if object_id not in self.last_announcement:
             self.last_announcement[object_id] = {"time": 0, "status": ""}
-        
+
         last_time = self.last_announcement[object_id]["time"]
         last_status = self.last_announcement[object_id]["status"]
-        
+
         # Always announce if status changed
         if status != last_status:
             self.last_announcement[object_id] = {"time": current_time, "status": status}
             return True
-        
-        # Otherwise check cooldown
-        if current_time - last_time > self.announcement_cooldown:
+
+        # Otherwise check the cooldown (1.5 seconds)
+        if current_time - last_time > 1.5:  # Cooldown time: 1.5 seconds
             self.last_announcement[object_id] = {"time": current_time, "status": status}
             return True
-            
+
         return False
+    
+    def process_speech_queue(self):
+        while True:
+            text = self.speech_queue.get()
+            try:
+                self.engine.say(text)
+                self.engine.runAndWait()
+            except RuntimeError as e:
+                print(f"[Speech Error] {e}")
+            self.speech_queue.task_done()
+
+
+    def speak(self, text):
+        self.engine.say(text)
+        self.engine.runAndWait()
 
     def update_video(self):
         if not self.running:
@@ -457,7 +478,18 @@ class ObjectDetectionApp:
                         
                         # Add object information to info text
                         info_text += f"📌 {label.upper()}:\n{description}\nDISTANCE: {distance:.1f} METERS\nSTATUS: {movement_status.upper()} ({direction.upper()})\n\n"
-                        
+                        # Append to left panel
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        entry = f"[{timestamp}] 📌 {label.upper()}\n{description}\n\n"
+                        left_log_key = f"{label}_{movement_status}"
+                        if left_log_key not in self.logged_left_panel:
+                            self.left_info_text.config(state=tk.NORMAL)
+                            self.left_info_text.insert(tk.END, entry)
+                            self.left_info_text.config(state=tk.DISABLED)
+                            self.left_info_text.yview(tk.END)
+                            self.logged_left_panel.add(left_log_key)
+
+
                         # Voice announcement with movement information
                         if self.should_announce(object_id, movement_status):
                             position_text = f"on the {direction}" if direction in ["left", "right"] else f"moving {direction}"
@@ -474,8 +506,9 @@ class ObjectDetectionApp:
                             else:
                                 announcement = f"{label} detected {position_text}, {distance:.1f} meters away"
                                 
-                            self.engine.say(announcement)
-                            self.engine.runAndWait()
+                            self.speech_queue.put(announcement)
+
+
 
                         # Log to the detection table
                         current_time = datetime.now().strftime("%H:%M:%S")
@@ -495,22 +528,12 @@ class ObjectDetectionApp:
                             if len(self.tree.get_children()) > 100:
                                 self.tree.delete(self.tree.get_children()[-1])
                 
-                # Update info text
-                if info_text:
-                    current_time = time.time()
-                # Update right panel every frame
-                self.update_info_text(info_text)
-                # Only update left panel if 3 seconds passed or it's the first message
-                if info_text and (current_time - self.last_info_update_time > 5):
-                    self.left_info_text.config(state=tk.NORMAL)
-                    self.left_info_text.delete(1.0, tk.END)
-                    self.left_info_text.insert(tk.END, info_text)
-                    self.left_info_text.config(state=tk.DISABLED)
-                    self.last_info_update_time = current_time
-                    self.last_info_text = info_text
 
-                else:
-                    self.update_info_text("NO OBJECTS DETECTED IN THE CURRENT FRAME.")
+                # Show info text only if there are detections
+                if info_text.strip():
+                    self.update_info_text(info_text)
+                
+
 
                 # Display frame
                 display_frame = cv2.resize(frame, (640, 480))
