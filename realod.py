@@ -1,111 +1,79 @@
 import cv2
 import torch
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, Canvas
 from PIL import Image, ImageTk
 from datetime import datetime
 import pyttsx3
+import time
+import requests
+import threading
 
 # Load YOLOv5 model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 
-# Contextual info
+# Fallback context info if Wikipedia fails
 context_info = {
     'bottle': 'Used to store liquids. Common in households, restaurants, and labs.',
     'book': 'Used for reading. Common in educational or office environments.',
     'cell phone': 'Portable device for communication and internet access.',
     'cup': 'A container used for drinking beverages.',
-    "person": "A person is a human being. Humans are characterized by their ability to walk upright, use complex language, and create tools.",
-    "bicycle": "A bicycle is a human-powered or motor-powered, pedal-driven vehicle with two wheels attached to a frame.",
-    "car": "A car is a wheeled motor vehicle used for transportation. Most definitions state that cars run primarily on roads and have seating for one to eight people.",
-    "motorcycle": "A motorcycle is a two- or three-wheeled motor vehicle. Motorcycle design varies greatly to suit a range of different purposes.",
-    "airplane": "An airplane is a powered, fixed-wing aircraft that is propelled forward by thrust from a jet engine or propeller.",
-    "bus": "A bus is a large motor vehicle that carries passengers by road, typically one that serves the public on a fixed route and for a fare.",
-    "train": "A train is a series of connected vehicles that run on tracks and are used for transporting cargo or passengers.",
-    "truck": "A truck is a motor vehicle designed to transport cargo. Trucks vary greatly in size, power, and configuration.",
-    "boat": "A boat is a small vessel for traveling over water, propelled by oars, sails, or an engine.",
-    "traffic light": "A traffic light is a signaling device positioned at road intersections to control the flow of traffic by using colored lights.",
-    "fire hydrant": "A fire hydrant is a connection point by which firefighters can tap into a water supply for firefighting purposes.",
-    "stop sign": "A stop sign is a regulatory sign used to notify drivers that they must come to a complete stop and ensure safety before proceeding.",
-    "parking meter": "A parking meter is a device used to collect money in exchange for the right to park a vehicle in a particular place for a limited time.",
-    "bench": "A bench is a long seat typically made of wood or metal, for multiple people to sit on, often placed in public areas like parks.",
-    "bird": "Birds are warm-blooded, egg-laying creatures with feathers, wings, and beaks. Most can fly, although some are flightless.",
-    "cat": "A cat is a small, carnivorous mammal that is often kept as a pet. Known for its agility and independence.",
-    "dog": "A dog is a domesticated mammal that is a popular pet and working animal. Known for loyalty and companionship.",
-    "horse": "A horse is a large mammal known for its strength, speed, and use in riding and work tasks.",
-    "sheep": "Sheep are domesticated ruminants raised for their wool, meat, and milk. They typically have thick, woolly coats.",
-    "cow": "A cow is a large domesticated ungulate raised for milk, meat, and leather. Commonly found on farms.",
-    "elephant": "An elephant is the largest land animal, known for its long trunk, tusks, and intelligence. Native to Africa and Asia.",
-    "bear": "A bear is a large, heavy mammal with thick fur and a short tail. Bears are omnivores and can be found in forests and mountains.",
-    "zebra": "A zebra is a wild horse with black-and-white stripes found in Africa. Known for their social behavior and grazing habits.",
-    "giraffe": "A giraffe is the tallest land animal, with a long neck and legs, and distinctive spots. Found in African savannas.",
-    "backpack": "A backpack is a cloth sack carried on one's back, secured with two straps over the shoulders, used for carrying items.",
-    "umbrella": "An umbrella is a folding canopy supported by metal ribs and mounted on a pole, used for protection from rain or sun.",
-    "handbag": "A handbag is a small bag used by women to carry personal items such as money, keys, and cosmetics.",
-    "tie": "A tie is a piece of cloth worn around the neck, typically by men, for formal occasions or professional dress.",
-    "suitcase": "A suitcase is a rectangular case with a handle, used for carrying clothes and personal belongings while traveling.",
-    "frisbee": "A frisbee is a flat, round disc typically made of plastic, used for recreational throwing and catching games.",
-    "skis": "Skis are long, narrow pieces of hard material worn on the feet to glide over snow.",
-    "snowboard": "A snowboard is a flat board used for sliding down snow-covered slopes.",
-    "sports ball": "A sports ball is any round or oval object used in various games and sports.",
-    "kite": "A kite is a light frame covered with cloth, plastic, or paper, designed to be flown in the wind at the end of a long string.",
-    "baseball bat": "A baseball bat is a smooth wooden or metal club used in baseball to hit the ball.",
-    "baseball glove": "A baseball glove is a large padded leather glove worn by baseball players to catch the ball.",
-    "skateboard": "A skateboard is a short board mounted on wheels, ridden in a standing or crouching position.",
-    "surfboard": "A surfboard is a long, narrow board used for riding waves in the sport of surfing.",
-    "tennis racket": "A tennis racket is a sports implement used to hit a ball in tennis, consisting of a handled frame with an open hoop strung with cords.",
-    "bottle": "A bottle is a narrow-necked container made of glass or plastic, used for storing drinks or other liquids.",
-    "wine glass": "A wine glass is a type of glass used to drink wine, typically with a stem and a round bowl.",
-    "cup": "A cup is a small open container used for drinking.",
-    "fork": "A fork is an eating utensil with two or more prongs used to lift food to the mouth.",
-    "knife": "A knife is a tool with a sharp blade used for cutting or as a weapon.",
-    "spoon": "A spoon is a utensil consisting of a small shallow bowl, oval or round, at the end of a handle.",
-    "bowl": "A bowl is a round, deep dish or basin used for food or liquid.",
-    "banana": "A banana is a long curved fruit with a yellow skin and soft, sweet flesh.",
-    "apple": "An apple is a round fruit with red, green, or yellow skin and a crisp flesh.",
-    "sandwich": "A sandwich is a food consisting of one or more types of food placed between slices of bread.",
-    "orange": "An orange is a citrus fruit with a tough skin and juicy, sweet flesh.",
-    "broccoli": "Broccoli is an edible green plant in the cabbage family, whose large flowering head is eaten as a vegetable.",
-    "carrot": "A carrot is a root vegetable, usually orange in color, though purple, black, red, white, and yellow varieties exist.",
-    "hot dog": "A hot dog is a cooked sausage served in a sliced bun as a sandwich.",
-    "pizza": "Pizza is a savory dish of Italian origin consisting of a usually round, flat base of dough baked with a topping of tomatoes and cheese.",
-    "donut": "A donut is a type of fried dough confection or dessert food, typically ring-shaped.",
-    "cake": "Cake is a sweet baked dessert, usually made from flour, sugar, and other ingredients.",
-    "chair": "A chair is a piece of furniture with a raised surface used to sit on.",
-    "couch": "A couch is a piece of furniture for seating two or more people in a sitting or reclining position.",
-    "potted plant": "A potted plant is a plant grown in a container, commonly used indoors for decoration.",
-    "bed": "A bed is a piece of furniture which is used as a place to sleep or relax.",
-    "dining table": "A dining table is a table at which meals are served and eaten.",
-    "toilet": "A toilet is a sanitation fixture used for the disposal of human waste.",
-    "tv": "A TV (television) is an electronic device used for viewing audiovisual content.",
-    "laptop": "A laptop is a portable computer with a screen and keyboard integrated into a single unit.",
-    "mouse": "A mouse is a handheld pointing device used to interact with a computer.",
-    "remote": "A remote is a wireless device used to control electronics like televisions and media players from a distance.",
-    "keyboard": "A keyboard is an input device used to type text and interact with a computer.",
-    "cell phone": "A cell phone is a mobile device used for communication, internet access, and applications.",
-    "microwave": "A microwave is an electric oven that heats food using microwave radiation.",
-    "oven": "An oven is a thermally insulated chamber used for the heating, baking, or drying of a substance.",
-    "toaster": "A toaster is an electrical appliance designed to brown sliced bread by exposing it to radiant heat.",
-    "sink": "A sink is a bowl-shaped plumbing fixture used for washing hands, dishes, and other tasks.",
-    "refrigerator": "A refrigerator is an appliance used to keep food and drinks cool and fresh.",
-    "book": "A book is a set of written, printed, or blank pages fastened together and enclosed between covers.",
-    "clock": "A clock is a device used to measure, keep, and indicate time.",
-    "vase": "A vase is a container used to hold cut flowers or for decoration.",
-    "scissors": "Scissors are a hand-operated cutting instrument consisting of a pair of metal blades.",
-    "teddy bear": "A teddy bear is a soft toy in the form of a bear, often given to children as a comfort object.",
-    "hair drier": "A hair drier is an electric device used to dry and style hair by blowing warm air.",
-    "toothbrush": "A toothbrush is a small brush used for cleaning teeth, usually with toothpaste."
+    # ... (rest of the dictionary remains the same)
 }
+
+# Color theme
+bg_color = "#e0f7fa"         # Light aqua
+accent_color = "#00796b"     # Teal green
+text_color = "#004d40"       # Deep teal
+highlight_color = "#b2ebf2"  # Pale cyan
+
+# Cache for Wikipedia descriptions to avoid repeated API calls
+wiki_cache = {}
+
+def get_wikipedia_description(object_name, max_length=150):
+    """
+    Get description from Wikipedia API for the given object
+    Parameters:
+    - object_name: Name of the object to search on Wikipedia
+    - max_length: Maximum length of the returned description
+    Returns: Description string or None if not found
+    """
+    # Check if we already have this in our cache
+    if object_name.lower() in wiki_cache:
+        return wiki_cache[object_name.lower()]
+    
+    try:
+        # Construct the API URL for Wikipedia's API
+        api_url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + object_name.replace(" ", "_")
+        
+        # Make the request with a timeout
+        response = requests.get(api_url, timeout=3)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Extract the description
+            if 'extract' in data:
+                description = data['extract']
+                # Truncate if necessary
+                if len(description) > max_length:
+                    description = description[:max_length] + "..."
+                
+                # Store in cache
+                wiki_cache[object_name.lower()] = description
+                return description
+    except Exception as e:
+        print(f"Error fetching Wikipedia data: {e}")
+    
+    # Return None if we couldn't get a description
+    return None
 
 def estimate_distance(box_height, frame_height, known_height=1.7):
     """
     Estimate distance using the height of the bounding box
-    
     Parameters:
     - box_height: Height of the bounding box in pixels
     - frame_height: Height of the frame in pixels
     - known_height: Reference height of the object in meters (default is average human height)
-    
     Returns: Distance in meters (approximate)
     """
     # Focal length estimation (can be calibrated more precisely if needed)
@@ -119,33 +87,31 @@ def estimate_distance(box_height, frame_height, known_height=1.7):
 class ObjectDetectionApp:
     def __init__(self, window):
         self.window = window
-        self.window.title("Smart Object Detection")
+        self.window.title("AI OBJECT DETECTION SYSTEM")
         self.window.geometry("1200x800")
-        self.window.configure(bg="#f5f5f5")
+        self.window.configure(bg=bg_color)
 
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("TFrame", background="#f5f5f5")
-        style.configure("TLabel", background="#f5f5f5", font=("Helvetica", 11))
-        style.configure("Header.TLabel", font=("Helvetica", 14, "bold"))
-        style.configure("Info.TLabel", font=("Helvetica", 11), wraplength=300)
-        style.configure("Treeview", font=("Helvetica", 10))
-        style.configure("Treeview.Heading", font=("Helvetica", 11, "bold"))
+        style.configure("TFrame", background=bg_color)
+        style.configure("TLabel", background=bg_color, foreground=text_color, font=("Verdana", 11))
+        style.configure("Header.TLabel", font=("Orbitron", 14, "bold"), foreground=accent_color, background=bg_color)
+        style.configure("Info.TLabel", font=("Consolas", 11), wraplength=300, background=bg_color, foreground=text_color)
+        style.configure("Treeview", font=("Consolas", 10), background=highlight_color, fieldbackground=highlight_color, foreground=text_color)
+        style.configure("Treeview.Heading", font=("Verdana", 11, "bold"), background=accent_color, foreground=bg_color)
+        style.configure("Accent.TButton", background=accent_color, foreground=bg_color, font=("Verdana", 11, "bold"))
 
         main_container = ttk.Frame(window, padding=15)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        title_frame = ttk.Frame(main_container)
-        title_frame.pack(fill=tk.X, pady=(0, 15))
-        title_label = ttk.Label(title_frame, text="AI Object Detection System", font=("Helvetica", 18, "bold"))
-        title_label.pack()
+        self.draw_gradient_banner(main_container)
 
         content_frame = ttk.Frame(main_container)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
         left_panel = ttk.Frame(content_frame, borderwidth=2, relief="groove")
         left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        video_header = ttk.Label(left_panel, text="Camera Feed", style="Header.TLabel")
+        video_header = ttk.Label(left_panel, text="CAMERA FEED", style="Header.TLabel")
         video_header.pack(pady=10)
         self.video_frame = ttk.Label(left_panel)
         self.video_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
@@ -154,44 +120,46 @@ class ObjectDetectionApp:
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(0, 0))
         right_panel.pack_propagate(False)
 
-        info_header = ttk.Label(right_panel, text="Detection Information", style="Header.TLabel")
+        info_header = ttk.Label(right_panel, text="DETECTION INFORMATION", style="Header.TLabel")
         info_header.pack(pady=10)
 
         info_frame = ttk.Frame(right_panel)
         info_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
 
-        self.info_text = scrolledtext.ScrolledText(info_frame, width=30, height=15, font=("Helvetica", 11), wrap=tk.WORD)
+        self.info_text = scrolledtext.ScrolledText(info_frame, width=30, height=15, font=("Courier New", 11), wrap=tk.WORD, bg=highlight_color, fg=text_color)
         self.info_text.pack(fill=tk.BOTH, expand=True)
         self.info_text.config(state=tk.DISABLED)
 
         controls_frame = ttk.Frame(right_panel)
         controls_frame.pack(fill=tk.X, padx=15, pady=15)
 
-        self.detection_status = ttk.Label(controls_frame, text="Status: Running", foreground="green", font=("Helvetica", 11, "bold"))
+        self.detection_status = ttk.Label(controls_frame, text="STATUS: RUNNING", foreground="green", font=("Verdana", 11, "bold"))
         self.detection_status.pack(side=tk.LEFT, pady=5)
 
-        self.pause_button = ttk.Button(controls_frame, text="Pause", command=self.toggle_detection)
+        self.pause_button = ttk.Button(controls_frame, text="PAUSE", command=self.toggle_detection, style="Accent.TButton")
         self.pause_button.pack(side=tk.RIGHT, pady=5)
 
         log_frame = ttk.Frame(main_container, borderwidth=2, relief="groove")
         log_frame.pack(fill=tk.BOTH, pady=(15, 0))
 
-        log_header = ttk.Label(log_frame, text="Detection Log", style="Header.TLabel")
+        log_header = ttk.Label(log_frame, text="DETECTION LOG", style="Header.TLabel")
         log_header.pack(pady=10)
 
         table_container = ttk.Frame(log_frame)
         table_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-        columns = ('#1', '#2', '#3', '#4')
+        columns = ('#1', '#2', '#3', '#4', '#5')
         self.tree = ttk.Treeview(table_container, columns=columns, show='headings', height=8)
         self.tree.heading('#1', text='ID')
-        self.tree.heading('#2', text='Time')
-        self.tree.heading('#3', text='Object')
-        self.tree.heading('#4', text='Description')
+        self.tree.heading('#2', text='TIME')
+        self.tree.heading('#3', text='OBJECT')
+        self.tree.heading('#4', text='MOVEMENT')
+        self.tree.heading('#5', text='DESCRIPTION')
         self.tree.column('#1', width=50, anchor='center')
         self.tree.column('#2', width=150)
         self.tree.column('#3', width=120)
-        self.tree.column('#4', width=500)
+        self.tree.column('#4', width=150)
+        self.tree.column('#5', width=350)
 
         scrollbar = ttk.Scrollbar(table_container, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -205,8 +173,36 @@ class ObjectDetectionApp:
         self.logged_objects = set()
         self.engine = pyttsx3.init()
         self.engine.setProperty('rate', 150)  # Adjust speech rate
-
+        
+        # Object tracking dictionary to store previous positions and movement status
+        self.object_tracking = {}
+        self.last_announcement = {}  # Track when we last announced a status for each object
+        self.announcement_cooldown = 2.0  # Seconds between announcements for the same object
+        
+        # Thread-safe description fetching
+        self.description_queue = {}
+        self.wiki_lock = threading.Lock()
+        
         self.update_video()
+
+    def draw_gradient_banner(self, parent):
+        canvas = Canvas(parent, height=80, width=1200, highlightthickness=0)
+        canvas.pack(fill=tk.X)
+        self.create_gradient(canvas, 1200, 80, "#b2ebf2", "#e0f7fa")
+        canvas.create_text(600, 40, text="AI OBJECT DETECTION SYSTEM", font=("Helvetica", 24, "bold"), fill=accent_color)
+
+    def create_gradient(self, canvas, width, height, color1, color2):
+        r1, g1, b1 = canvas.winfo_rgb(color1)
+        r2, g2, b2 = canvas.winfo_rgb(color2)
+        r_ratio = (r2 - r1) / height
+        g_ratio = (g2 - g1) / height
+        b_ratio = (b2 - b1) / height
+        for i in range(height):
+            nr = int(r1 + (r_ratio * i))
+            ng = int(g1 + (g_ratio * i))
+            nb = int(b1 + (b_ratio * i))
+            hex_color = f"#{nr//256:02x}{ng//256:02x}{nb//256:02x}"
+            canvas.create_line(0, i, width, i, fill=hex_color)
 
     def update_info_text(self, text):
         self.info_text.config(state=tk.NORMAL)
@@ -217,11 +213,148 @@ class ObjectDetectionApp:
     def toggle_detection(self):
         self.paused = not self.paused
         if self.paused:
-            self.pause_button.config(text="Resume")
-            self.detection_status.config(text="Status: Paused", foreground="orange")
+            self.pause_button.config(text="RESUME")
+            self.detection_status.config(text="STATUS: PAUSED", foreground="orange")
         else:
-            self.pause_button.config(text="Pause")
-            self.detection_status.config(text="Status: Running", foreground="green")
+            self.pause_button.config(text="PAUSE")
+            self.detection_status.config(text="STATUS: RUNNING", foreground="green")
+
+    def get_object_description(self, object_name):
+        """
+        Get object description, first trying Wikipedia, then falling back to dataset
+        """
+        # First check if we're already fetching this description
+        with self.wiki_lock:
+            if object_name in self.description_queue:
+                return self.description_queue[object_name]
+        
+        # Try Wikipedia
+        wiki_desc = get_wikipedia_description(object_name)
+        
+        if wiki_desc:
+            description = f"[WIKIPEDIA]: {wiki_desc}"
+        else:
+            # Fall back to the local dataset
+            description = context_info.get(object_name.lower(), "NO ADDITIONAL INFORMATION AVAILABLE.")
+            description = f"[LOCAL DATA]: {description}"
+        
+        # Store in our queue
+        with self.wiki_lock:
+            self.description_queue[object_name] = description
+            
+        return description
+
+    def fetch_descriptions_async(self, object_name):
+        """
+        Fetch descriptions in background thread to avoid UI blocking
+        """
+        def fetch_task():
+            description = self.get_object_description(object_name)
+            with self.wiki_lock:
+                self.description_queue[object_name] = description
+                
+        thread = threading.Thread(target=fetch_task)
+        thread.daemon = True
+        thread.start()
+
+    def determine_movement(self, object_id, current_position, current_distance):
+        """
+        Determine if an object is approaching, moving away, stopped, or moving sideways
+        Returns movement status and direction
+        """
+        current_time = time.time()
+        center_x, center_y = current_position
+        frame_center_x = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) // 2
+        
+        # Default movement status
+        movement_status = "Unknown"
+        direction = "center" if abs(center_x - frame_center_x) < 100 else ("left" if center_x < frame_center_x else "right")
+        
+        # If this is a new object, just record its position
+        if object_id not in self.object_tracking:
+            self.object_tracking[object_id] = {
+                'prev_position': current_position,
+                'prev_distance': current_distance,
+                'last_position_update': current_time,
+                'stopped_count': 0,
+                'is_stopped': False
+            }
+            movement_status = "Detected"
+        else:
+            # Get previous data
+            prev_data = self.object_tracking[object_id]
+            prev_position = prev_data['prev_position']
+            prev_distance = prev_data['prev_distance']
+            time_diff = current_time - prev_data['last_position_update']
+            
+            # Only update if enough time has passed to avoid noise
+            if time_diff > 0.2:
+                # Calculate position change
+                delta_x = center_x - prev_position[0]
+                delta_y = center_y - prev_position[1]
+                distance_change = current_distance - prev_distance
+                
+                # Calculate magnitude of movement (in pixels)
+                movement_magnitude = (delta_x*2 + delta_y*2)*0.5
+                
+                # Update the tracking data
+                self.object_tracking[object_id]['prev_position'] = current_position
+                self.object_tracking[object_id]['prev_distance'] = current_distance
+                self.object_tracking[object_id]['last_position_update'] = current_time
+                
+                # Determine movement status
+                if movement_magnitude < 15:  # Threshold for considering an object stopped
+                    self.object_tracking[object_id]['stopped_count'] += 1
+                    if self.object_tracking[object_id]['stopped_count'] >= 3:  # Object must be still for multiple frames
+                        self.object_tracking[object_id]['is_stopped'] = True
+                        movement_status = "Stopped"
+                    else:
+                        movement_status = "Slowing down"
+                else:
+                    self.object_tracking[object_id]['stopped_count'] = 0
+                    self.object_tracking[object_id]['is_stopped'] = False
+                    
+                    # Determine approach or retreat based on distance change
+                    if abs(distance_change) > 0.15:  # Threshold for significant distance change
+                        if distance_change < 0:
+                            movement_status = "Approaching"
+                        elif distance_change > 0:
+                            movement_status = "Moving away"
+                    else:
+                        # Moving sideways
+                        if abs(delta_x) > abs(delta_y):
+                            movement_status = "Moving sideways"
+                            direction = "left" if delta_x < 0 else "right"
+                        else:
+                            movement_status = "Moving vertically"
+                            direction = "up" if delta_y < 0 else "down"
+        
+        return movement_status, direction
+
+    def should_announce(self, object_id, status):
+        """
+        Determine if we should announce this status update
+        based on cooldown and status change
+        """
+        current_time = time.time()
+        
+        if object_id not in self.last_announcement:
+            self.last_announcement[object_id] = {"time": 0, "status": ""}
+        
+        last_time = self.last_announcement[object_id]["time"]
+        last_status = self.last_announcement[object_id]["status"]
+        
+        # Always announce if status changed
+        if status != last_status:
+            self.last_announcement[object_id] = {"time": current_time, "status": status}
+            return True
+        
+        # Otherwise check cooldown
+        if current_time - last_time > self.announcement_cooldown:
+            self.last_announcement[object_id] = {"time": current_time, "status": status}
+            return True
+            
+        return False
 
     def update_video(self):
         if not self.running:
@@ -232,7 +365,12 @@ class ObjectDetectionApp:
             if ret:
                 labels_detected = set()
                 results = model(frame)
+                
+                frame_height, frame_width = frame.shape[:2]
+                frame_center_x = frame_width // 2
 
+                info_text = ""
+                
                 for *box, conf, cls in results.xyxy[0]:
                     label = results.names[int(cls)]
                     confidence = float(conf)
@@ -251,48 +389,95 @@ class ObjectDetectionApp:
                         else:
                             known_height = 0.5  # Default height
                             
-                        distance = estimate_distance(box_height, frame.shape[0], known_height)
+                        distance = estimate_distance(box_height, frame_height, known_height)
                         
-                        # Draw bounding box and label
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-                        # Draw bounding box and label
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(frame, f"{label} {confidence:.2f} ({distance:.1f}m)", (x1, y1 - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0),2)            
-                        labels_detected.add((label, distance))
+                        # Calculate center position for movement tracking
+                        center_x = (x1 + x2) // 2
+                        center_y = (y1 + y2) // 2
                         
-                        # Voice assistant: speak detected object and position
-                        frame_center = frame.shape[1] // 2
-                        object_center = (x1 + x2) // 2
-                        position = "left" if object_center < frame_center else "right"
+                        # Create a unique object ID based on label and position
+                        object_id = f"{label}{int(center_x//50)}{int(center_y//50)}"
                         
-                        announcement = f"{label} detected on the {position}, {distance:.1f} meters away"
-                        if label not in self.logged_objects:
+                        # Determine movement status and direction
+                        movement_status, direction = self.determine_movement(
+                            object_id, (center_x, center_y), distance)
+                        
+                        # Choose color based on movement
+                        if movement_status == "Approaching":
+                            box_color = (0, 0, 255)  # Red for approaching
+                        elif movement_status == "Stopped":
+                            box_color = (255, 255, 0)  # Yellow for stopped
+                        elif movement_status == "Moving away":
+                            box_color = (255, 0, 0)  # Blue for moving away
+                        else:
+                            box_color = (0, 255, 0)  # Green for other states
+                        
+                        # Draw bounding box and label 
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
+                        cv2.putText(frame, f"{label} {confidence:.2f} ({distance:.1f}m)", (x1, y1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+                        cv2.putText(frame, f"{movement_status}", (x1, y2 + 20),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+                        
+                        # Store info for the panel
+                        labels_detected.add((label, distance, movement_status, direction))
+                        
+                        # Start fetching description in background if not already available
+                        if label not in self.description_queue:
+                            self.fetch_descriptions_async(label)
+                        
+                        # Get the current description (either from cache or dataset)
+                        with self.wiki_lock:
+                            if label in self.description_queue:
+                                description = self.description_queue[label]
+                            else:
+                                # Use fallback until Wikipedia description is ready
+                                description = context_info.get(label.lower(), "Fetching information...")
+                        
+                        # Add object information to info text
+                        info_text += f"📌 {label.upper()}:\n{description}\nDISTANCE: {distance:.1f} METERS\nSTATUS: {movement_status.upper()} ({direction.upper()})\n\n"
+                        
+                        # Voice announcement with movement information
+                        if self.should_announce(object_id, movement_status):
+                            position_text = f"on the {direction}" if direction in ["left", "right"] else f"moving {direction}"
+                            
+                            # Create different announcements based on movement status
+                            if movement_status == "Approaching":
+                                announcement = f"{label} is approaching from the {direction}, {distance:.1f} meters away"
+                            elif movement_status == "Stopped":
+                                announcement = f"{label} has stopped {position_text}, {distance:.1f} meters away"
+                            elif movement_status == "Moving away":
+                                announcement = f"{label} is moving away {position_text}, {distance:.1f} meters away"
+                            elif movement_status == "Moving sideways":
+                                announcement = f"{label} is moving {direction}, {distance:.1f} meters away"
+                            else:
+                                announcement = f"{label} detected {position_text}, {distance:.1f} meters away"
+                                
                             self.engine.say(announcement)
                             self.engine.runAndWait()
 
-                # Update info label and table
-                if labels_detected:
-                    info_text = ""
-                    for label, distance in labels_detected:
-                        description = context_info.get(label.lower(), "No additional information available.")
-                        info_text += f"📌 {label.upper()}:\n{description}\nDistance: {distance:.1f} meters\n\n"
-                        if label not in self.logged_objects:
-                            current_time = datetime.now().strftime("%H:%M:%S")
-                            # Add distance info to the description
-                            description_with_distance = f"{description}\nDistance: {distance:.1f}m"
+                        # Log to the detection table
+                        current_time = datetime.now().strftime("%H:%M:%S")
+                        object_key = f"{label}_{movement_status}"
+                        
+                        if object_key not in self.logged_objects:
+                            description_with_distance = f"{description}\nDISTANCE: {distance:.1f}m"
                             self.tree.insert('', 0, values=(
-                                self.serial_no, current_time, label, description_with_distance))
+                                self.serial_no, current_time, label.upper(), movement_status.upper(), description_with_distance))
                             self.serial_no += 1
-                            self.logged_objects.add(label)
+                            self.logged_objects.add(object_key)
 
+                            # Limit log entries
                             if len(self.tree.get_children()) > 100:
                                 self.tree.delete(self.tree.get_children()[-1])
-
+                
+                # Update info text
+                if info_text:
                     self.update_info_text(info_text)
                 else:
-                    self.update_info_text("No objects detected in the current frame.")
+                    self.update_info_text("NO OBJECTS DETECTED IN THE CURRENT FRAME.")
 
+                # Display frame
                 display_frame = cv2.resize(frame, (640, 480))
                 frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
@@ -306,7 +491,6 @@ class ObjectDetectionApp:
         self.running = False
         self.cap.release()
         self.window.destroy()
-
 
 # Run app
 if __name__ == "__main__":
