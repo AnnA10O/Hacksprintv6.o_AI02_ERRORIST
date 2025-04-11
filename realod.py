@@ -67,7 +67,7 @@ def get_wikipedia_description(object_name, max_length=150):
     # Return None if we couldn't get a description
     return None
 
-def estimate_distance(box_height, frame_height, known_height=1.7):
+def estimate_distance(box_height, frame_height, known_height=0.7):
     """
     Estimate distance using the height of the bounding box
     Parameters:
@@ -77,7 +77,7 @@ def estimate_distance(box_height, frame_height, known_height=1.7):
     Returns: Distance in meters (approximate)
     """
     # Focal length estimation (can be calibrated more precisely if needed)
-    focal_length = 500
+    focal_length = 700
     
     # Calculate distance
     distance = (known_height * focal_length) / box_height
@@ -90,6 +90,9 @@ class ObjectDetectionApp:
         self.window.title("AI OBJECT DETECTION SYSTEM")
         self.window.geometry("1200x800")
         self.window.configure(bg=bg_color)
+
+        #intialising log file path
+        self.log_file_path = "detection_log.txt"
 
         style = ttk.Style()
         style.theme_use('clam')
@@ -115,6 +118,15 @@ class ObjectDetectionApp:
         video_header.pack(pady=10)
         self.video_frame = ttk.Label(left_panel)
         self.video_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        # Label for additional info
+        wiki_info_label = ttk.Label(left_panel, text="OBJECT INFO", style="Header.TLabel")
+        wiki_info_label.pack(pady=(5, 0))
+
+        # Scrollable text widget to show Wikipedia/local descriptions
+        self.left_info_text = scrolledtext.ScrolledText(left_panel, width=40, height=12, font=("Courier New", 10),wrap=tk.WORD, bg=highlight_color, fg=text_color)
+        self.left_info_text.pack(padx=10, pady=(0, 10), fill=tk.BOTH, expand=False)
+        self.left_info_text.config(state=tk.DISABLED)
+
 
         right_panel = ttk.Frame(content_frame, width=350, borderwidth=2, relief="groove")
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(0, 0))
@@ -182,8 +194,19 @@ class ObjectDetectionApp:
         # Thread-safe description fetching
         self.description_queue = {}
         self.wiki_lock = threading.Lock()
-        
+        self.last_info_update_time = 0
+        self.last_info_text = ""
         self.update_video()
+
+    #code for logging in log file
+    def log_detection_to_file(self, label, status, description, distance):
+        try:
+            with open(self.log_file_path, "a") as f:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                log_entry = f"[{timestamp}] {label.upper()} | STATUS: {status.upper()} | DISTANCE: {distance:.1f}m\nDESCRIPTION: {description}\n\n"
+                f.write(log_entry)
+        except Exception as e:
+            print(f"Error writing to log file: {e}")
 
     def draw_gradient_banner(self, parent):
         canvas = Canvas(parent, height=80, width=1200, highlightthickness=0)
@@ -414,11 +437,9 @@ class ObjectDetectionApp:
                         
                         # Draw bounding box and label 
                         cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
-                        cv2.putText(frame, f"{label} {confidence:.2f} ({distance:.1f}m)", (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
-                        cv2.putText(frame, f"{movement_status}", (x1, y2 + 20),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
-                        
+                        cv2.putText(frame, f"{label} {confidence:.2f} ({distance:.1f}m)", (x1, y1 - 10),cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+                        cv2.putText(frame, f"{movement_status}", (x1, y2 + 20),cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+        
                         # Store info for the panel
                         labels_detected.add((label, distance, movement_status, direction))
                         
@@ -462,18 +483,32 @@ class ObjectDetectionApp:
                         
                         if object_key not in self.logged_objects:
                             description_with_distance = f"{description}\nDISTANCE: {distance:.1f}m"
-                            self.tree.insert('', 0, values=(
-                                self.serial_no, current_time, label.upper(), movement_status.upper(), description_with_distance))
+                            self.tree.insert('', 0, values=(self.serial_no, current_time, label.upper(), movement_status.upper(), description_with_distance))
+                            
+                            #code to append in log file
+                            self.log_detection_to_file(label, movement_status, description, distance)
+
                             self.serial_no += 1
                             self.logged_objects.add(object_key)
-
+                            
                             # Limit log entries
                             if len(self.tree.get_children()) > 100:
                                 self.tree.delete(self.tree.get_children()[-1])
                 
                 # Update info text
                 if info_text:
-                    self.update_info_text(info_text)
+                    current_time = time.time()
+                # Update right panel every frame
+                self.update_info_text(info_text)
+                # Only update left panel if 3 seconds passed or it's the first message
+                if info_text and (current_time - self.last_info_update_time > 5):
+                    self.left_info_text.config(state=tk.NORMAL)
+                    self.left_info_text.delete(1.0, tk.END)
+                    self.left_info_text.insert(tk.END, info_text)
+                    self.left_info_text.config(state=tk.DISABLED)
+                    self.last_info_update_time = current_time
+                    self.last_info_text = info_text
+
                 else:
                     self.update_info_text("NO OBJECTS DETECTED IN THE CURRENT FRAME.")
 
