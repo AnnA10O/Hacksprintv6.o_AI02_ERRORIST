@@ -35,11 +35,7 @@ wiki_cache = {}
 
 def get_wikipedia_description(object_name, max_length=150):
     """
-    Get description from Wikipedia API for the given object
-    Parameters:
-    - object_name: Name of the object to search on Wikipedia
-    - max_length: Maximum length of the returned description
-    Returns: Description string or None if not found
+    Get description from Wikipedia API for the given object with improved error handling
     """
     # Check if we already have this in our cache
     if object_name.lower() in wiki_cache:
@@ -64,12 +60,21 @@ def get_wikipedia_description(object_name, max_length=150):
                 # Store in cache
                 wiki_cache[object_name.lower()] = description
                 return description
+            else:
+                # Handle missing extract field
+                wiki_cache[object_name.lower()] = context_info.get(object_name.lower(),  "No description available.")
+                return wiki_cache[object_name.lower()]
+        else:
+            # Handle unsuccessful API calls
+            wiki_cache[object_name.lower()] = context_info.get(object_name.lower(), "Could not retrieve information.")
+            return wiki_cache[object_name.lower()]
+            
     except Exception as e:
         print(f"Error fetching Wikipedia data: {e}")
+        # Fall back to context info or generic message
+        wiki_cache[object_name.lower()] = context_info.get(object_name.lower(), "Information temporarily unavailable.")
+        return wiki_cache[object_name.lower()]
     
-    # Return None if we couldn't get a description
-    return None
-
 def estimate_distance(box_height, frame_height, known_height=0.7):
     """
     Estimate distance using the height of the bounding box
@@ -97,7 +102,12 @@ class ObjectDetectionApp:
         #intialising log file path
         self.log_file_path = "detection_log.txt"
         self.logged_left_panel = set()
-
+        self.left_panel_data = {}  # Dictionary to store object info for left panel
+        self.max_left_panel_entries = 10  # Limit number of entries
+        
+        #for speech module
+        self.speech_enabled = True
+        
         style = ttk.Style()
         style.theme_use('clam')
         style.configure("TFrame", background=bg_color)
@@ -155,6 +165,9 @@ class ObjectDetectionApp:
         self.pause_button = ttk.Button(controls_frame, text="PAUSE", command=self.toggle_detection, style="Accent.TButton")
         self.pause_button.pack(side=tk.RIGHT, pady=5)
 
+        self.speech_button = ttk.Button(controls_frame, text="MUTE SPEECH", command=self.toggle_speech, style="Accent.TButton")
+        self.speech_button.pack(side=tk.RIGHT, pady=5, padx=5)
+        
         log_frame = ttk.Frame(main_container, borderwidth=2, relief="groove")
         log_frame.pack(fill=tk.BOTH, pady=(15, 0))
 
@@ -205,6 +218,47 @@ class ObjectDetectionApp:
         self.last_info_text = ""
         self.update_video()
 
+    def update_left_panel(self, label, description, movement_status):
+        """Update left panel with object information, maintaining a limited history"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{timestamp}] 📌 {label.upper()}\n{description}\n\n"
+        
+        # Create a unique key for this entry
+        left_log_key = f"{label}_{movement_status}"
+        
+        # Check if this is a new entry
+        if left_log_key not in self.left_panel_data:
+            # Add to our tracking dictionary
+            self.left_panel_data[left_log_key] = {
+                'entry': entry,
+                'timestamp': datetime.now()
+            }
+            
+            # Limit the number of entries
+            if len(self.left_panel_data) > self.max_left_panel_entries:
+                # Find oldest entry
+                oldest_key = min(self.left_panel_data, key=lambda k: self.left_panel_data[k]['timestamp'])
+                # Remove it
+                del self.left_panel_data[oldest_key]
+            
+            # Clear the text widget and rebuild it with current entries
+            self.left_info_text.config(state=tk.NORMAL)
+            self.left_info_text.delete(1.0, tk.END)
+            
+            # Get sorted entries (newest first)
+            sorted_entries = sorted(
+                self.left_panel_data.items(), 
+                key=lambda x: x[1]['timestamp'], 
+                reverse=True
+            )
+            
+            # Add all current entries
+            for _, entry_data in sorted_entries:
+                self.left_info_text.insert(tk.END, entry_data['entry'])
+                
+            self.left_info_text.config(state=tk.DISABLED)
+            self.left_info_text.yview(tk.END)
+
     #code for logging in log file
     def log_detection_to_file(self, label, status, description, distance):
         try:
@@ -214,6 +268,30 @@ class ObjectDetectionApp:
                 f.write(log_entry)
         except Exception as e:
             print(f"Error writing to log file: {e}")
+
+    def cleanup_old_entries(self):
+        """Remove entries older than a certain threshold"""
+        current_time = datetime.now()
+        threshold = 60  # seconds
+        
+        keys_to_remove = []
+        for key, data in self.left_panel_data.items():
+            if (current_time - data['timestamp']).total_seconds() > threshold:
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove:
+            del self.left_panel_data[key]
+        
+        # Also clean up the object tracking data
+        tracking_to_remove = []
+        for obj_id, data in self.object_tracking.items():
+            if (current_time.timestamp() - data['last_position_update']) > threshold:
+                tracking_to_remove.append(obj_id)
+        
+        for obj_id in tracking_to_remove:
+            del self.object_tracking[obj_id]
+            if obj_id in self.last_announcement:
+                del self.last_announcement[obj_id]
 
     def draw_gradient_banner(self, parent):
         canvas = Canvas(parent, height=80, width=1200, highlightthickness=0)
@@ -247,6 +325,21 @@ class ObjectDetectionApp:
         else:
             self.pause_button.config(text="PAUSE")
             self.detection_status.config(text="STATUS: RUNNING", foreground="green")
+
+    def toggle_speech(self):
+        """Toggle speech announcements on/off"""
+        self.speech_enabled = not self.speech_enabled
+        if self.speech_enabled:
+            self.speech_button.config(text="MUTE SPEECH")
+            # Clear any backlog
+            while not self.speech_queue.empty():
+                try:
+                    self.speech_queue.get_nowait()
+                    self.speech_queue.task_done()
+                except queue.Empty:
+                    break
+        else:
+            self.speech_button.config(text="ENABLE SPEECH")
 
     def get_object_description(self, object_name):
         """
@@ -360,40 +453,122 @@ class ObjectDetectionApp:
         
         return movement_status, direction
 
-    def should_announce(self, object_id, status):
+    def should_announce(self, object_id, status, distance):
         """
-        Determine if we should announce this status update
-        based on cooldown and status change
+        Improved method to determine if we should announce this status update
+        - Only announce important status changes
+        - Use longer cooldowns for routine updates
+        - Prioritize objects based on distance and movement status
         """
         current_time = time.time()
 
         if object_id not in self.last_announcement:
-            self.last_announcement[object_id] = {"time": 0, "status": ""}
+            self.last_announcement[object_id] = {"time": 0, "status": "", "distance": 0}
 
         last_time = self.last_announcement[object_id]["time"]
         last_status = self.last_announcement[object_id]["status"]
-
-        # Always announce if status changed
-        if status != last_status:
-            self.last_announcement[object_id] = {"time": current_time, "status": status}
+        last_distance = self.last_announcement[object_id]["distance"]
+        
+        # Calculate distance change
+        distance_change = abs(distance - last_distance)
+        
+        # Define announcement priority levels
+        priority_statuses = ["Approaching", "Detected"]  # High priority statuses
+        
+        # Longer cooldown for routine updates (5 seconds)
+        standard_cooldown = 5.0
+        
+        # Shorter cooldown for priority statuses (2 seconds)
+        priority_cooldown = 2.0
+        
+        # Significant distance change threshold
+        significant_distance_change = 1.0  # meters
+        
+        # Always announce new objects with no previous status
+        if last_status == "":
+            self.last_announcement[object_id] = {
+                "time": current_time, 
+                "status": status,
+                "distance": distance
+            }
             return True
-
-        # Otherwise check the cooldown (1.5 seconds)
-        if current_time - last_time > 1.5:  # Cooldown time: 1.5 seconds
-            self.last_announcement[object_id] = {"time": current_time, "status": status}
+        
+        # Always announce if status changed to a priority status
+        if status in priority_statuses and status != last_status:
+            self.last_announcement[object_id] = {
+                "time": current_time, 
+                "status": status,
+                "distance": distance
+            }
+            return True
+        
+        # Announce significant distance changes
+        if distance_change > significant_distance_change:
+            self.last_announcement[object_id] = {
+                "time": current_time, 
+                "status": status,
+                "distance": distance
+            }
+            return True
+            
+        # For other status changes, check the appropriate cooldown
+        if status != last_status:
+            cooldown = priority_cooldown if status in priority_statuses else standard_cooldown
+            if current_time - last_time > cooldown:
+                self.last_announcement[object_id] = {
+                    "time": current_time, 
+                    "status": status,
+                    "distance": distance
+                }
+                return True
+        
+        # For status updates with no change, use standard cooldown
+        elif current_time - last_time > standard_cooldown:
+            self.last_announcement[object_id] = {
+                "time": current_time, 
+                "status": status,
+                "distance": distance
+            }
             return True
 
         return False
-    
+        
     def process_speech_queue(self):
+        """
+        Process speech queue with improved handling to prevent backlogs
+        """
         while True:
-            text = self.speech_queue.get()
             try:
+                # Use a timeout to periodically check if we should clear the queue
+                try:
+                    text = self.speech_queue.get(timeout=0.5)
+                except queue.Empty:
+                    # No new messages, continue the loop
+                    continue
+                    
+                # Check if the queue is getting too large (more than 3 items)
+                if self.speech_queue.qsize() > 3:
+                    # Clear the queue except for the most recent item
+                    while self.speech_queue.qsize() > 1:
+                        try:
+                            self.speech_queue.get_nowait()
+                            self.speech_queue.task_done()
+                        except queue.Empty:
+                            break
+                
+                # Process the current speech item
                 self.engine.say(text)
                 self.engine.runAndWait()
+                self.speech_queue.task_done()
+                
             except RuntimeError as e:
                 print(f"[Speech Error] {e}")
-            self.speech_queue.task_done()
+                # Clear the current item to avoid getting stuck
+                self.speech_queue.task_done()
+            except Exception as e:
+                print(f"[Unexpected Speech Error] {e}")
+                # Prevent the thread from crashing
+                time.sleep(1)
 
 
     def speak(self, text):
@@ -481,17 +656,10 @@ class ObjectDetectionApp:
                         # Append to left panel
                         timestamp = datetime.now().strftime("%H:%M:%S")
                         entry = f"[{timestamp}] 📌 {label.upper()}\n{description}\n\n"
-                        left_log_key = f"{label}_{movement_status}"
-                        if left_log_key not in self.logged_left_panel:
-                            self.left_info_text.config(state=tk.NORMAL)
-                            self.left_info_text.insert(tk.END, entry)
-                            self.left_info_text.config(state=tk.DISABLED)
-                            self.left_info_text.yview(tk.END)
-                            self.logged_left_panel.add(left_log_key)
-
+                        self.update_left_panel(label, description, movement_status)
 
                         # Voice announcement with movement information
-                        if self.should_announce(object_id, movement_status):
+                        if self.should_announce(object_id, movement_status, distance):
                             position_text = f"on the {direction}" if direction in ["left", "right"] else f"moving {direction}"
                             
                             # Create different announcements based on movement status
@@ -506,7 +674,8 @@ class ObjectDetectionApp:
                             else:
                                 announcement = f"{label} detected {position_text}, {distance:.1f} meters away"
                                 
-                            self.speech_queue.put(announcement)
+                            if self.speech_enabled:
+                                self.speech_queue.put(announcement)
 
 
 
@@ -544,6 +713,8 @@ class ObjectDetectionApp:
                 self.video_frame.configure(image=imgtk)
 
         self.window.after(10, self.update_video)
+        if time.time() % 30 < 0.1:  # Run approximately every 30 seconds
+            self.cleanup_old_entries()
 
     def stop(self):
         self.running = False
